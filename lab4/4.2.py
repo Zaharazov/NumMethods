@@ -15,38 +15,50 @@ x1 = 1.0
 h = 0.05
 y0_prime = 1  # y'(x0)
 alpha0 = 0.0
-alpha1 = 20.0
+alpha1 = 5.0
 
 # Краевые условия
 # y'(x0) = 1
 # y'(x1) - 2*y(x1) = 0
 
-def tridiagonal_solve(a, b, c, d):
-    n = len(b)
+def lu_decomposition(A): # преобразуем матрицу А в матрицу L + U
+    n = len(A)
+    for k in range(n):
+        for i in range(k + 1, n):
+            A[i][k] /= A[k][k]
+            for j in range(k + 1, n):
+                A[i][j] -= A[i][k] * A[k][j]
 
-    # прямой ход
-    alpha = [0] * n
-    beta = [0] * n
+def forward_substitution(A, b): # прямая подстановка
+    n = len(A)
+    y = [0] * n
+    for i in range(n): # считаем первый y, потом при подсчете второго вычитаем предыдущие и т.д.
+        y[i] = b[i] - sum(A[i][j] * y[j] for j in range(i))
+    return y
 
-    alpha[0] = c[0] / b[0]
-    beta[0] = d[0] / b[0]
-
-    for i in range(1, n - 1):
-        alpha[i] = c[i] / (b[i] - a[i - 1] * alpha[i - 1])
-        beta[i] = (d[i] - a[i - 1] * beta[i - 1]) / (b[i] - a[i - 1] * alpha[i - 1])
-
-    beta[n - 1] = (d[n - 1] - a[n - 2] * beta[n - 2]) / (b[n - 1] - a[n - 2] * alpha[n - 2])
-
-    # обратный ход
+def backward_substitution(A, y): # обратная подстановка
+    n = len(A)
     x = [0] * n
-    x[n - 1] = beta[n - 1]
-
-    for i in range(n - 2, -1, -1):
-        x[i] = beta[i] - alpha[i] * x[i + 1]
-
-    x = [round(val, 6) for val in x]
-
+    for i in range(n - 1, -1, -1):
+        x[i] = (y[i] - sum(A[i][j] * x[j] for j in range(i + 1, n))) / A[i][i] # аналогично + делим на коэф перед x
     return x
+
+def solve_lu(A, b): # решаем задачу
+    lu_decomposition(A)
+    y = forward_substitution(A, b) # Ly=b
+    x = backward_substitution(A, y) # Ux=y
+    return x
+
+def build_full_matrix(a, b, c):
+    n = len(b)
+    A = [[0] * n for _ in range(n)]
+    for i in range(n):
+        A[i][i] = b[i]
+        if i > 0:
+            A[i][i - 1] = a[i - 1]
+        if i < n - 1:
+            A[i][i + 1] = c[i]
+    return A
 
 def runge_kutta_4(f, x0, xn, y0, z0, h):
     xs = [x0]
@@ -86,7 +98,7 @@ def shooting_method(f, x0, x1, y0_prime, h, alpha0, alpha1, eps=1e-6, max_iter=5
         _, ys, zs = runge_kutta_4(f, x0, x1, alpha, y0_prime, h)
         y1 = ys[-1]
         z1 = zs[-1]
-        return z1 - 2 * y1  # это граница: y'(1) - 2y(1)
+        return z1 - 2 * y1  # это граница: y'(1) - 2y(1) картинка с итерациями
 
     a0 = alpha0
     a1 = alpha1
@@ -106,11 +118,10 @@ def shooting_method(f, x0, x1, y0_prime, h, alpha0, alpha1, eps=1e-6, max_iter=5
     return xs, ys, zs
 
 def finite_difference_method(x0, x1, h, y0_prime):
-    # Ручная генерация xs — гарантированно доходит до x1
     xs = []
     x = x0
     while x < x1:
-        xs.append(round(x, 10))  # защита от накопления ошибки
+        xs.append(round(x, 10))
         x += h
     xs.append(x1)
     N = len(xs) - 1
@@ -145,7 +156,9 @@ def finite_difference_method(x0, x1, h, y0_prime):
     a = a_full[1:]     # от a[1] до a[N] → длина N
     c = c_full[:-1]    # от c[0] до c[N-1] → длина N
 
-    y = tridiagonal_solve(a, b, c, d)
+    A = build_full_matrix(a, b, c)
+    y = solve_lu([row[:] for row in A], d)
+    #y = tridiagonal_solve(a, b, c, d)
     return xs, y
 
 def runge_romberg(yh, yh2, p):
@@ -195,8 +208,8 @@ def analyze_method(name, method_func, f, x0, x1, y0, z0, h, p):
         print(f"{x:6.2f} | {y:14.8f} | {y_ex:14.8f} | {err:12.2e} | {y_rr:14.8f} | {err_rr:12.2e}")
 
     print(f"\nСредняя ошибка (MAE):")
-    print(f"  Без Рунге–Ромберга: {mae_orig:.2e}")
-    print(f"  С Рунге–Ромбергом : {mae_rr:.2e}")
+    print(f"  Для метода: {mae_orig:.2e}")
+    print(f"  Для Рунге–Ромберга : {mae_rr:.2e}")
 
     plot_results(name, xs, ys, xs_half, ys_half, y_exact, ys_rr)
 
